@@ -1,8 +1,8 @@
-/* Relay on-off based on analogut input
-   ------------------------------------
+/* AC compressor on-off via a relay based on analogut input
+   --------------------------------------------------------
 
-   turns on and off a relay. The amount of time the relay will be on and off depends on
-   the value obtained by analogRead().
+   Turns on and off AC compressor. The amount of time the relay
+   will be on and off depends on the value obtained by analogRead().
 
    Created 22 February 2020
    copyright 2020 Lajos Olah <lajos.olah.jr@gmail.com>
@@ -11,16 +11,15 @@
 
 const int COMPRESSOR_ON = LOW;
 const int COMPRESSOR_OFF = HIGH;
-const int relayPin = 3;                                 // relay output
-const int potPin = 2;                                   // potentiometer input
-const float analogueValueMax = 1023.0;                  // maximum potentiometer value
-const unsigned long timeFrame = 60000.0;                // 1 minutes in milliseconds
-const unsigned long minimalCompressorOnOff = 5000;      // seconds while compressor is on
-int state;
+const int RELAY_PIN = 3;                                   // relay output
+const int POTENTIOMETER_PIN = 2;                           // potentiometer input
+const float ANALOGUE_MAX_VALUE = 1023.0;                   // maximum potentiometer value
+const unsigned long TIME_FRAME = 60000.0;                  // 1 minutes in milliseconds
+const unsigned long MINIMAL_COMPRESSOR_ON_OFF = 5000;      // seconds while compressor is on
+int STATE;                                                 // state (on/off)
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(relayPin, OUTPUT);
+  pinMode(RELAY_PIN, OUTPUT);
 
   Serial.begin(9600);
 }
@@ -28,38 +27,39 @@ void setup() {
 void loop() {
   unsigned long compressorOnOff;               // seconds while compressor is on or off
 
-  state = COMPRESSOR_ON;
-  compressorOnOff = calculateCompressorOnOff(state);
-  printCompressorValues(compressorOnOff, state);
-  setCompressor(state, compressorOnOff);
+  STATE = COMPRESSOR_ON;
+  compressorOnOff = calculateCompressorOnOff(STATE);
+  printCompressorValues(compressorOnOff, STATE);
+  setCompressor(STATE, compressorOnOff);
 
-  state = COMPRESSOR_OFF;
-  compressorOnOff = calculateCompressorOnOff(state);
-  printCompressorValues(compressorOnOff, state);
-  setCompressor(state, compressorOnOff);
+  STATE = COMPRESSOR_OFF;
+  compressorOnOff = calculateCompressorOnOff(STATE);
+  printCompressorValues(compressorOnOff, STATE);
+  setCompressor(STATE, compressorOnOff);
 }
 
-unsigned long calculateCompressorOnOff(int state) {
-  int analogueValue = analogueValueMax - analogRead(potPin);
+unsigned long calculateCompressorOnOff(int STATE) {
+  // potmeret torned to the left means low temp. -> max - actual value
+  int analogueValue = ANALOGUE_MAX_VALUE - analogRead(POTENTIOMETER_PIN);
 
-  unsigned long sleepValue = (float) timeFrame * ((float)analogueValue / analogueValueMax);
+  unsigned long sleepValue = (float) TIME_FRAME * ((float)analogueValue / ANALOGUE_MAX_VALUE);
 
-  if (state == COMPRESSOR_OFF) {
-    sleepValue = timeFrame - sleepValue;
+  if (STATE == COMPRESSOR_OFF) {
+    sleepValue = TIME_FRAME - sleepValue;
   }
 
   if (sleepValue == 0) {
-    sleepValue = minimalCompressorOnOff;
+    sleepValue = MINIMAL_COMPRESSOR_ON_OFF;
   }
 
   return sleepValue / 1000;
 }
 
-void setCompressor(int state, unsigned long compressorOnOff) {
-  digitalWrite(relayPin, state);
+void setCompressor(int STATE, unsigned long compressorOnOff) {  
+  digitalWrite(RELAY_PIN, STATE);
   Serial.print("Setting compressor ");
 
-  switch (state) {
+  switch (STATE) {
     case COMPRESSOR_ON:
       Serial.print("on ");
       break;
@@ -81,20 +81,20 @@ void wait(unsigned long compressorOnOff) {
     delay(1000);
     Serial.println(i);
 
-    localCompressorOnOff = calculateCompressorOnOff(state);
+    localCompressorOnOff = calculateCompressorOnOff(STATE);
     if (localCompressorOnOff != compressorOnOff) {
       Serial.println("Timing changed");
-      printCompressorValues(localCompressorOnOff, state);
+      printCompressorValues(localCompressorOnOff, STATE);
       compressorOnOff = localCompressorOnOff;
     }
   }
 }
 
-void printCompressorValues(unsigned long compressorOnOff, int state) {
+void printCompressorValues(unsigned long compressorOnOff, int STATE) {
   Serial.print("Compressor on value ");
-  Serial.print(state == COMPRESSOR_ON ? compressorOnOff : timeFrame / 1000 - compressorOnOff);
+  Serial.print(STATE == COMPRESSOR_ON ? compressorOnOff : TIME_FRAME / 1000 - compressorOnOff);
   Serial.println(" s");
   Serial.print("Compressor off value ");
-  Serial.print(state == COMPRESSOR_ON ? timeFrame / 1000 - compressorOnOff : compressorOnOff);
+  Serial.print(STATE == COMPRESSOR_ON ? TIME_FRAME / 1000 - compressorOnOff : compressorOnOff);
   Serial.println(" s");
 }
