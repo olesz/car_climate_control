@@ -45,7 +45,6 @@ static int readAnalogueValue(struct pt *pt) {
     if (localCompressorOn != compressorOn || localCompressorOff != compressorOff) {
       compressorOn = localCompressorOn;
       compressorOff = localCompressorOff;
-      Serial.println("Values changed");
       printCompressorValues(compressorOn, compressorOff);
     }
   }
@@ -79,7 +78,9 @@ static int doCompressorOnOff(struct pt *pt) {
     Serial.print(counter);
     Serial.print(" (");
     Serial.print(state == COMPRESSOR_ON ? "on" : "off");
-    Serial.println(")");
+    Serial.print(" for ");
+    Serial.print(state == COMPRESSOR_ON ? compressorOn : compressorOff);
+    Serial.println("s)");
     counter++;
   }
   
@@ -116,28 +117,15 @@ unsigned long calculateCompressorOnOff(int state) {
   return sleepValue / SEC_1;
 }
 
-void setCompressor(int state) {  
-  Serial.print("Setting compressor ");
-
-  switch (state) {
-    case COMPRESSOR_ON:
-      Serial.print("on ");
-      break;
-    case COMPRESSOR_OFF:
-      Serial.print("off ");
-      break;
-  }
-  Serial.print("(");
-  Serial.print(state == COMPRESSOR_ON ? compressorOn : compressorOff);
-  Serial.println("s)");
+void setCompressor(int state) {
   digitalWrite(RELAY_PIN, state);
 }
 
 void printCompressorValues(unsigned long compressorOn, unsigned long compressorOff) {
-  Serial.print("Compressor on value ");
+  Serial.print("On value ");
   Serial.print(compressorOn);
-  Serial.println(" s");
-  Serial.print("Compressor off value ");
+  Serial.print("s");
+  Serial.print(", off value ");
   Serial.print(compressorOff);
-  Serial.println(" s");
+  Serial.println("s");
 }
