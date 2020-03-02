@@ -2,31 +2,49 @@
    --------------------------------------------------------
 
    Turns on and off AC compressor. The amount of time the relay
-   will be on and off depends on the value obtained by analogRead().
+   will be on and off depends on the value read from the potentiometer attahced.
 
-   Created 22 February 2020
+   Duty cycle provided by G65 pressure sensor is also analyzed.
+   Compressor/fan state is changed based on that.
+
+   Created 02 March 2020
    Copyright 2020 Lajos Olah <lajos.olah.jr@gmail.com>
 
 */
 
 #include <pt.h>
+#include <movingAvg.h>
 
-#define SEC_1 1000
+#define POTENTIOMETER_PIN 2   // potentiometer input - ANALOGUE!!!
+#define PRESSURE_SENSOR_PIN 2 // pressure sensor input - DIGITAL!!!
+#define COMPRESSOR_PIN 3      // compresor output
+#define FAN_PIN 5             // fan output
+
+#define MILLISEC_1000 1000
 #define MILLISEC_100 100
+#define MILLISEC_60000 60000.0
 
-#define COUNTER_INIT 1
-#define COMPRESSOR_ON 0
-#define COMPRESSOR_OFF 1
-#define RELAY_PIN 3                       // relay output
-#define POTENTIOMETER_PIN 2               // potentiometer input
+#define PRESSURE_SENSOR_DUTY_CYCLE_LENGTH 20000   // G65 pressure sensor sends 50hz signal -> 20000microsec is the cycle length
+#define DUTY_CYCLE_PRESSURE_LOW_PERCENTAGE 15     // below this percentage compressor turned off (low pressure)
+#define DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE 85    // above this percentage compressor turned off (high pressure)
+#define DUTY_CYCLE_FAN_ON_PERCENTAGE 55           // above this percentage fan turned on
+#define DUTY_CYCLE_MOVING_AVERAGE_COUNT 100       // 100*20ms=2sec: samples are kept and averaged for 2 seconds
+
+#define COUNTER_INIT 1                    // initial value of cunter which counts the seconds in compressor on/off phase
+#define STATE_ON 0                        // state on value
+#define STATE_OFF 1                       // state off value
 #define ANALOGUE_MAX_VALUE 1023.0         // maximum potentiometer value
-#define TIME_FRAME 60000.0                // 1 minutes in milliseconds
 #define MINIMAL_COMPRESSOR_ON_OFF 5000    // seconds while compressor is on
-unsigned long compressorOn;               // seconds while compressor is on or off
-unsigned long compressorOff;              // seconds while compressor is on or off
+
+volatile unsigned long prev_time = 0;   // needed for interrupt handling
+
+unsigned long compressorOn;   // seconds while compressor is on or off
+unsigned long compressorOff;  // seconds while compressor is on or off
 
 static struct pt ptReadAnalogueValue;
 static struct pt ptDoCompressorOnOff;
+
+movingAvg avgDutyCycle(DUTY_CYCLE_MOVING_AVERAGE_COUNT); 
 
 /* This function reads analogut value from potentiometer */
 static int readAnalogueValue(struct pt *pt) {
@@ -39,8 +57,8 @@ static int readAnalogueValue(struct pt *pt) {
   while(1) {
     PT_WAIT_UNTIL(pt, millis() - timestamp > MILLISEC_100);
     timestamp = millis(); // take a new timestamp
-    localCompressorOn = calculateCompressorOnOff(COMPRESSOR_ON);
-    localCompressorOff = calculateCompressorOnOff(COMPRESSOR_OFF);
+    localCompressorOn = calculateCompressorOnOff(STATE_ON);
+    localCompressorOff = calculateCompressorOnOff(STATE_OFF);
 
     if (localCompressorOn != compressorOn || localCompressorOff != compressorOff) {
       compressorOn = localCompressorOn;
@@ -52,47 +70,79 @@ static int readAnalogueValue(struct pt *pt) {
   PT_END(pt);
 }
 
-/* This function does compressor on-off */
+/* This function does compressor and fan on-off */
 static int doCompressorOnOff(struct pt *pt) {
   static unsigned long timestamp = 0;
-  static int state = COMPRESSOR_ON;
   static int counter = COUNTER_INIT;
+  static int compressorState = STATE_ON;
+  static int fanState = STATE_OFF;
   
   PT_BEGIN(pt);
 
-  PT_WAIT_UNTIL(pt, millis() - timestamp > SEC_1);
+  PT_WAIT_UNTIL(pt, millis() - timestamp > MILLISEC_1000);
 
-  setCompressor(state);
+  setCompressor(compressorState);
   
   while(1) {
-    PT_WAIT_UNTIL(pt, millis() - timestamp > SEC_1);
+    PT_WAIT_UNTIL(pt, millis() - timestamp > MILLISEC_1000);
     timestamp = millis(); // take a new timestamp
-    unsigned long compressorOnOff = state == COMPRESSOR_ON ? compressorOn : compressorOff;
+    unsigned long compressorOnOff = compressorState == STATE_ON ? compressorOn : compressorOff;
+    unsigned long avg = avgDutyCycle.getAvg();
+    double avgPercentage = (double)(avg*100/PRESSURE_SENSOR_DUTY_CYCLE_LENGTH);
+
+    if (avgPercentage > DUTY_CYCLE_FAN_ON_PERCENTAGE) {
+      fanState = STATE_ON;
+    } else {
+      fanState = STATE_OFF;
+    }
+
+    setFan(fanState);
+
+    if (avgPercentage < DUTY_CYCLE_PRESSURE_LOW_PERCENTAGE || avgPercentage > DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE) {
+      Serial.println("DC is out of range [" + String(DUTY_CYCLE_PRESSURE_LOW_PERCENTAGE) + "%-"
+        + DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE + "%]: " + getDutyCyclePrintout(avg, avgPercentage));
+      setCompressor(STATE_OFF);
+      continue;
+    }
 
     if (counter > compressorOnOff) {
       counter = COUNTER_INIT;
-      state = state == COMPRESSOR_ON ? COMPRESSOR_OFF : COMPRESSOR_ON;
-      setCompressor(state);
+      compressorState = compressorState == STATE_ON ? STATE_OFF : STATE_ON;
+      setCompressor(compressorState);
     }
 
-    Serial.print(counter);
-    Serial.print(" (");
-    Serial.print(state == COMPRESSOR_ON ? "on" : "off");
-    Serial.print(" for ");
-    Serial.print(state == COMPRESSOR_ON ? compressorOn : compressorOff);
-    Serial.println("s)");
+    Serial.println(String(counter) + " (" + getStateString(compressorState) + " for " + String(compressorState == STATE_ON ? compressorOn : compressorOff)
+      + "s - " + getDutyCyclePrintout(avg, avgPercentage) + " - fan " + getStateString(fanState) + ")");
     counter++;
   }
   
   PT_END(pt);
 }
 
+void rising()
+{
+  attachInterrupt(digitalPinToInterrupt(PRESSURE_SENSOR_PIN), falling, FALLING);
+  prev_time = micros();
+}
+ 
+void falling() {
+  attachInterrupt(digitalPinToInterrupt(PRESSURE_SENSOR_PIN), rising, RISING);
+  avgDutyCycle.reading(micros()-prev_time);
+}
+
 void setup() {
-  pinMode(RELAY_PIN, OUTPUT);
+  Serial.begin(9600);
+
+  avgDutyCycle.begin();
+
+  attachInterrupt(digitalPinToInterrupt(PRESSURE_SENSOR_PIN), rising, RISING);
+  
+  pinMode(COMPRESSOR_PIN, OUTPUT);
+  pinMode(FAN_PIN, OUTPUT);
+  pinMode(PRESSURE_SENSOR_PIN, INPUT);
+  
   PT_INIT(&ptReadAnalogueValue);
   PT_INIT(&ptDoCompressorOnOff);
-
-  Serial.begin(9600);
 }
 
 void loop() {
@@ -104,28 +154,35 @@ unsigned long calculateCompressorOnOff(int state) {
   // potmeret turned to the left means low temp. -> max - actual value
   int analogueValue = ANALOGUE_MAX_VALUE - analogRead(POTENTIOMETER_PIN);
 
-  unsigned long sleepValue = (float) TIME_FRAME * ((float)analogueValue / ANALOGUE_MAX_VALUE);
+  unsigned long sleepValue = MILLISEC_60000 * ((float)analogueValue / ANALOGUE_MAX_VALUE);
 
-  if (state == COMPRESSOR_OFF) {
-    sleepValue = TIME_FRAME - sleepValue;
+  if (state == STATE_OFF) {
+    sleepValue = MILLISEC_60000 - sleepValue;
   }
 
   if (sleepValue == 0) {
     sleepValue = MINIMAL_COMPRESSOR_ON_OFF;
   }
 
-  return sleepValue / SEC_1;
+  return sleepValue / MILLISEC_1000;
 }
 
 void setCompressor(int state) {
-  digitalWrite(RELAY_PIN, state);
+  digitalWrite(COMPRESSOR_PIN, state);
+}
+
+void setFan(int state) {
+  digitalWrite(FAN_PIN, state);
 }
 
 void printCompressorValues(unsigned long compressorOn, unsigned long compressorOff) {
-  Serial.print("On value ");
-  Serial.print(compressorOn);
-  Serial.print("s");
-  Serial.print(", off value ");
-  Serial.print(compressorOff);
-  Serial.println("s");
+  Serial.println("On value " + String(compressorOn) + "s, off value " + String(compressorOff) + "s");
+}
+
+String getDutyCyclePrintout(unsigned long ms, double percentage) {
+  return "DC " + String(percentage) + "%, " + String(ms);
+}
+
+String getStateString(int state) {
+  return String(state == STATE_ON ? "on" : "off");
 }
