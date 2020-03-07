@@ -15,10 +15,15 @@
 #include <pt.h>
 #include <movingAvg.h>
 
-#define POTENTIOMETER_PIN 2   // potentiometer input - ANALOGUE!!!
-#define PRESSURE_SENSOR_PIN 2 // pressure sensor input - DIGITAL!!!
-#define COMPRESSOR_PIN 3      // compresor output
-#define FAN_PIN 5             // fan output
+#define PRESSURE_SENSOR_PRESENT 0 // pressure sensor present or not
+#define PRESSURE_SENSOR_PIN 2     // pressure sensor input - DIGITAL
+
+#define POTENTIOMETER_PIN 2       // potentiometer input - ANALOGUE
+
+#define COMPRESSOR_PIN 3          // compresor output - DIGITAL
+
+#define FAN_PRESENT 0             // fan present or not
+#define FAN_PIN 5                 // fan output - DIGITAL
 
 #define MILLISEC_1000 1000
 #define MILLISEC_100 100
@@ -98,9 +103,9 @@ static int doCompressorOnOff(struct pt *pt) {
 
     setFan(fanState);
 
-    if (avgPercentage < DUTY_CYCLE_PRESSURE_LOW_PERCENTAGE || avgPercentage > DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE) {
+    if (PRESSURE_SENSOR_PRESENT != 0 && (avgPercentage < DUTY_CYCLE_PRESSURE_LOW_PERCENTAGE || avgPercentage > DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE)) {
       Serial.println("DC is out of range [" + String(DUTY_CYCLE_PRESSURE_LOW_PERCENTAGE) + "%-"
-        + DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE + "%]: " + getDutyCyclePrintout(avg, avgPercentage));
+        + DUTY_CYCLE_PRESSURE_HIGH_PERCENTAGE + "%]: " + getDutyCyclePrintout(avg, avgPercentage, false));
       setCompressor(STATE_OFF);
       continue;
     }
@@ -112,7 +117,7 @@ static int doCompressorOnOff(struct pt *pt) {
     }
 
     Serial.println(String(counter) + " (" + getStateString(compressorState) + " for " + String(compressorState == STATE_ON ? compressorOn : compressorOff)
-      + "s - " + getDutyCyclePrintout(avg, avgPercentage) + " - fan " + getStateString(fanState) + ")");
+      + "s" + getDutyCyclePrintout(avg, avgPercentage, true) + getFanPrintout(fanState) + ")");
     counter++;
   }
   
@@ -179,10 +184,27 @@ void printCompressorValues(unsigned long compressorOn, unsigned long compressorO
   Serial.println("On value " + String(compressorOn) + "s, off value " + String(compressorOff) + "s");
 }
 
-String getDutyCyclePrintout(unsigned long ms, double percentage) {
-  return "DC " + String(percentage) + "%, " + String(ms);
+String getDutyCyclePrintout(unsigned long ms, double percentage, boolean hyphenNeeded) {
+  String result;
+  if (PRESSURE_SENSOR_PRESENT == 0) {
+    return "";
+  } else {
+    if (hyphenNeeded) {
+      result = result + " - DC ";
+    }
+    result = result + String(percentage) + "%, " + String(ms) + "ms";
+    return result;
+  }
 }
 
 String getStateString(int state) {
   return String(state == STATE_ON ? "on" : "off");
+}
+
+String getFanPrintout(int fanState) {
+  if (FAN_PRESENT == 0) {
+    return "";
+  } else {
+    return " - fan " + getStateString(fanState);
+  }
 }
