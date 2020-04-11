@@ -23,7 +23,7 @@
 #define COMPRESSOR_PIN 3          // compresor output - DIGITAL
 
 #define FAN_PRESENT 0             // fan present or not
-#define FAN_PIN 5                 // fan output - DIGITAL
+#define FAN_PIN 4                 // fan output - DIGITAL
 
 #define MILLISEC_1000 1000
 #define MILLISEC_100 100
