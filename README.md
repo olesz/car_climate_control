@@ -9,3 +9,5 @@ Useful links:
   - https://www.autoserviceprofessional.com/article/97431/vw-a-c-info?force-desktop-view=1
   - https://www.dognmonkey.com/audi/high-pressure-sensor-g65-ac-blows-hot-air.html
   
+G65 example circuit diagram:
+![G65 example circuit diagram](images/g65_circuit_diagram.PNG)
